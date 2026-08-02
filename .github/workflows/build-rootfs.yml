@@ -1,19 +1,19 @@
-name: Build Ubuntu image for Xiaomi Pad 5 (nabu)
+name: Build Debian image for Xiaomi Pad 5 (nabu)
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Ubuntu Version'
+        description: "Debian Version"
         required: true
-        default: '26.04'
+        default: "forky"
       extra_packages:
-        description: 'Additional packages to install'
+        description: "Additional packages to install"
         required: false
-        default: ''
+        default: ""
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  
+
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
@@ -24,28 +24,22 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget xz-utils coreutils curl e2fsprogs
+          sudo apt-get install -y wget xz-utils coreutils curl e2fsprogs debootstrap
 
       - name: Create RootFS Image
         run: |
           VERSION="${{ github.event.inputs.version }}"
           EXTRA_PACKAGES="${{ github.event.inputs.extra_packages }}"
-          
+
           # Create and format image
           truncate -s 6G rootfs.img
           mkfs.ext4 rootfs.img
           mkdir -p rootdir
           sudo mount -o loop rootfs.img rootdir
 
-          # Download and Extract Ubuntu Base
-          if [ "$VERSION" = "26.04" ]; then
-            URL="https://cdimage.ubuntu.com/ubuntu-base/releases/26.04/beta/ubuntu-base-26.04-beta-base-arm64.tar.gz"
-          else
-            URL="https://cdimage.ubuntu.com/ubuntu-base/releases/$VERSION/release/ubuntu-base-$VERSION-base-arm64.tar.gz"
-          fi
-          
-          wget -q $URL -O ubuntu-base.tar.gz
-          sudo tar xzvf ubuntu-base.tar.gz -C rootdir
+          # Build Debian Base
+          sudo ln -sf sid /usr/share/debootstrap/scripts/$VERSION || true
+          sudo debootstrap --arch=arm64 $VERSION rootdir http://deb.debian.org/debian/
 
           # Setup Config Files
           sudo mkdir -p rootdir/var/lib/gdm3/.config
@@ -73,32 +67,32 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           export LANG=C.UTF-8
           export LC_ALL=C.UTF-8
-          
+
           # 1. Update the lists
           apt update || true 
-          
+
           # 2. Install certificates and gnupg first
           apt install -y locales ca-certificates gnupg
-          
+
           # 3. Generate en_US.UTF-8
           echo "en_US.UTF-8 UTF-8" > /etc/locale.gen
           locale-gen en_US.UTF-8
           update-locale LANG=en_US.UTF-8
-          
+
           # 4. Switch the current session to the new locale
           export LANG=en_US.UTF-8
           unset LC_ALL  # Allow LC_ALL to be determined by LANG
           EOF
-          
+
           sudo cp root-setup-files/xiaomi-nabu.sources rootdir/etc/apt/sources.list.d/xiaomi-nabu.sources
           sudo cp root-setup-files/themojoman.gpg rootdir/etc/apt/keyrings/themojoman.gpg
-          
+
           sudo chroot rootdir /bin/bash <<EOF
           export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$PATH
           export DEBIAN_FRONTEND=noninteractive
           export LANG=en_US.UTF-8
           unset LC_ALL
-          
+
           apt update
           apt install -y bash-completion sudo ssh nano micro curl alsa-ucm-conf
           apt install -y rmtfs protection-domain-mapper tqftpserv
@@ -109,22 +103,25 @@ jobs:
           apt install -y zram-config
           apt install -y $EXTRA_PACKAGES
           apt --fix-broken install -y
-          
+
           # Enable source repositories for build-dep
           sed -i 's/Types: deb/Types: deb deb-src/g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
+          sed -i 's/Types: deb/Types: deb deb-src/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true
           sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list 2>/dev/null || true
+          echo "deb-src http://deb.debian.org/debian/ $VERSION main" >> /etc/apt/sources.list
           apt update
 
           apt-get build-dep -y gnome-shell mutter gnome-settings-daemon
           apt install -y gnome-shell gnome-session gnome-terminal gdm3 firefox-esr wget
-          
-          wget -q -P /tmp https://github.com/alghiffaryfa19/gnome-shell-mobile-builder/releases/download/gnome-shell-97/gnome-shell-mobile.deb
-          wget -q -P /tmp https://github.com/alghiffaryfa19/gnome-shell-mobile-builder/releases/download/mutter/mutter-mobile.deb
-          wget -q -P /tmp https://github.com/alghiffaryfa19/gnome-shell-mobile-builder/releases/download/gsd/gsd-mobile.deb
+
+          wget -q -P /tmp https://github.com/alghiffaryfa19/gnome-shell-mobile-builder/releases/download/mutter-debian/gsd-mobile.deb
+          wget -q -P /tmp https://github.com/alghiffaryfa19/gnome-shell-mobile-builder/releases/download/mutter-debian/gsettings-desktop-schemas_52.0-all.deb
+          wget -q -P /tmp https://github.com/alghiffaryfa19/gnome-shell-mobile-builder/releases/download/mutter-debian/mutter-mobile.deb
+          wget -q -P /tmp https://github.com/alghiffaryfa19/gnome-shell-mobile-builder/releases/download/gnome-shell-debian-115/gnome-shell-mobile.deb
 
           apt-get install -y --allow-downgrades -o Dpkg::Options::="--force-overwrite" /tmp/*.deb
-          
-          apt-mark hold gnome-shell mutter gnome-settings-daemon
+
+          apt-mark hold gnome-shell mutter gnome-settings-daemon gsettings-desktop-schemas
           systemctl enable gdm3
 
           apt --fix-broken install -y
@@ -156,7 +153,7 @@ jobs:
         id: compress
         run: |
           VERSION="${{ github.event.inputs.version }}"
-          FILENAME="ubuntu-${VERSION}-xiaomi-nabu.img.xz"
+          FILENAME="debian-${VERSION}-xiaomi-nabu.img.xz"
           xz -6 rootfs.img
           mv rootfs.img.xz "$FILENAME"
           echo "img_name=$FILENAME" >> $GITHUB_OUTPUT
