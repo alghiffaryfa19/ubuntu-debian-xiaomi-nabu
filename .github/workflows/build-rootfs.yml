@@ -110,7 +110,23 @@ jobs:
           apt install -y $EXTRA_PACKAGES
           apt --fix-broken install -y
           
-          apt install -y ubuntu-desktop
+          # Enable source repositories for build-dep
+          sed -i 's/Types: deb/Types: deb deb-src/g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
+          sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list 2>/dev/null || true
+          apt update
+
+          apt-get build-dep -y gnome-shell mutter gnome-settings-daemon
+          apt install -y gnome-shell gnome-session gnome-terminal gdm3 firefox-esr wget
+          
+          wget -q -P /tmp https://github.com/alghiffaryfa19/gnome-shell-mobile-builder/releases/download/gnome-shell-97/gnome-shell-mobile.deb
+          wget -q -P /tmp https://github.com/alghiffaryfa19/gnome-shell-mobile-builder/releases/download/mutter/mutter-mobile.deb
+          wget -q -P /tmp https://github.com/alghiffaryfa19/gnome-shell-mobile-builder/releases/download/gsd/gsd-mobile.deb
+
+          apt-get install -y --allow-downgrades -o Dpkg::Options::="--force-overwrite" /tmp/*.deb
+          
+          apt-mark hold gnome-shell mutter gnome-settings-daemon
+          systemctl enable gdm3
+
           apt --fix-broken install -y
           apt upgrade -y
           apt --fix-broken install -y
